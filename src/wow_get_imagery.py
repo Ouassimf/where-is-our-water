@@ -71,6 +71,10 @@ def get_all(date, polygon):
         print(i)
         i += 1
         print(uuid)
-        download_product_quick_look(uuid)
-        download_product_tiff(uuid)
+        print(node.find('{http://www.w3.org/2005/Atom}str[@name="gmlfootprint"]').text)
+        # download_product_quick_look(uuid)
+        # download_product_tiff(uuid)
     return tree
+
+
+get_all(h, loc)
