@@ -1,8 +1,11 @@
 import requests
 from requests.auth import HTTPBasicAuth
 import xml.etree.ElementTree as ETree
-
+from matplotlib.path import Path
+from matplotlib import path
+import matplotlib.patches as patches
 from class_provider_imagery import ProviderImagery
+import matplotlib.pyplot as plt
 
 
 class WowImagery:
@@ -15,9 +18,10 @@ class WowImagery:
         contained_list = self.fully_contained_in_product(product_list)
         if contained_list:
             image = ProviderImagery('C', contained_list[0])
-            image.download_tiff('vv')
-            self.file = image.tiff_files[0]
-            self.crop()
+            image.download_quicklook()
+            # image.download_tiff('vv')
+            # self.file = image.tiff_files[0]
+            # self.crop()
 
         else:
             # TODO : Merger
@@ -36,12 +40,14 @@ class WowImagery:
 
     def get_product_list_by_time_location(self, date):
         url = "https://scihub.copernicus.eu/dhus/search?start=0&rows=100&q="
-        location_filter = 'footprint:"Intersects(%s)"' % self.coordinates
+        coordinates = ",".join(" ".join(map(str, l)) for l in self.coordinates)
+        coordinates = 'POLYGON((' + coordinates + '))'
+        location_filter = 'footprint:"Intersects(%s)"' % coordinates
         type_filter = "producttype:GRD"
         # TODO : Implement date in filter
         date_filter = "beginposition:[NOW-1MONTHS TO NOW] AND endposition:[NOW-1MONTHS TO NOW]"
-        filter = location_filter + " AND " + type_filter + " AND " + date_filter
-        url += filter
+        filter_tag = location_filter + " AND " + type_filter + " AND " + date_filter
+        url += filter_tag
         print(url)
         response = requests.get(url, auth=HTTPBasicAuth('ouassim', '747400Co'))
         print(response.text)
@@ -50,20 +56,36 @@ class WowImagery:
     def fully_contained_in_product(self, product_list):
         tree = ETree.ElementTree(ETree.fromstring(product_list))
         root = tree.getroot()
-        i = 1
         container_list = []
         for node in root.findall('{http://www.w3.org/2005/Atom}entry'):
             uuid = node.find('{http://www.w3.org/2005/Atom}id').text
-            print(i)
-            i += 1
-            print(uuid)
-            footprint = node.find('{http://www.w3.org/2005/Atom}str[@name="gmlfootprint"]').text
-            self.test_footprint(footprint)
+            footprint = node.find('{http://www.w3.org/2005/Atom}str[@name="footprint"]').text
+            footprint = footprint[footprint.find("(") + 2:footprint.find(")")]
+            footprint = self.process_footprint_string(footprint)
+            is_contained = self.test_footprint(footprint)
+            if is_contained:
+                container_list.append(uuid)
+
         return container_list
 
     def test_footprint(self, footprint):
-        print(footprint)
-        pass
+        # Footprint in the form of [[16.75, 47.40], ... , [16.70, 47.40]]
+        target_polygon = path.Path(self.coordinates)
+        candidate_polygon = path.Path(footprint)
+        self.plot_polygons(candidate_polygon, target_polygon)
+        is_contained = candidate_polygon.contains_path(target_polygon)
+        print(is_contained)
+        return is_contained
+
+    def plot_polygons(self, candidate_polygon, target_polygon):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        patch = patches.PathPatch(target_polygon, facecolor='orange', lw=2)
+        patch2 = patches.PathPatch(candidate_polygon, facecolor='blue', lw=2)
+        ax.add_patch(patch2)
+        ax.add_patch(patch)
+        ax.autoscale(True)
+        plt.show()
 
     def crop(self):
         self.file = ''
@@ -74,3 +96,13 @@ class WowImagery:
 
     def compute_leftovers(self, covers):
         return
+
+    @staticmethod
+    def process_footprint_string(footprint):
+        list_raw = footprint.split(",")
+        list_separated = []
+        for item in list_raw:
+            item_list = item.split(" ")
+            list_separated.append(item_list)
+        list_separated = [[float(j) for j in i] for i in list_separated]
+        return list_separated

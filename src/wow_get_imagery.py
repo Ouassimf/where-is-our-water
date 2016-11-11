@@ -68,10 +68,22 @@ def get_all(date, polygon):
     i = 1
     for node in root.findall('{http://www.w3.org/2005/Atom}entry'):
         uuid = node.find('{http://www.w3.org/2005/Atom}id').text
+        print("*" * 40)
         print(i)
         i += 1
         print(uuid)
-        print(node.find('{http://www.w3.org/2005/Atom}str[@name="gmlfootprint"]').text)
+        # print(node.find('{http://www.w3.org/2005/Atom}str[@name="gmlfootprint"]').text)
+        # print(node.find('{http://www.opengis.net/gml/srs/epsg.xml#4326}coordinates').text)
+        s = node.find('{http://www.w3.org/2005/Atom}str[@name="footprint"]').text
+        s = s[s.find("(") + 2:s.find(")")]
+        list_1 = s.split(",")
+        print(list_1)
+        list_2 = []
+        for item in list_1:
+            tmp_list = item.split(" ")
+            list_2.append(tmp_list)
+        print(list_2)
+        print(list_2[1][1])
         # download_product_quick_look(uuid)
         # download_product_tiff(uuid)
     return tree
