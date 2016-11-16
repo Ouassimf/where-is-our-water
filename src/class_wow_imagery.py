@@ -20,6 +20,14 @@ class WowImagery:
         self.coordinates = coordinates
         self.file = file
 
+    def process_area(self, date):
+        # 1. Get imagery that covers the requested area (either locally, online, or merged)
+        self.generate_from_coordinates(date)
+        # 2. Split newly created image in tiles for easier processing
+        self.split_in_tiles()
+        # 3. Runs classifier on each tiles
+        self.classify()
+
     def generate_from_coordinates(self, date):
         product_list = self.get_product_list_by_time_location(date)
         available_offline = self.available_offline(product_list)
