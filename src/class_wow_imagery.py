@@ -54,7 +54,7 @@ class WowImagery:
 
         print(width, 'x', height)
 
-        tilesize = 2000
+        tilesize = settings.TILE_SIZE
         self.tiles_file_list = []
         for i in range(0, width, tilesize):
             for j in range(0, height, tilesize):
@@ -70,7 +70,8 @@ class WowImagery:
         pass
 
     def classify(self):
-        pass
+        for tile in self.tiles_file_list:
+            print(tile)
 
     def get_product_list_by_time_location(self, date):
         url = "https://scihub.copernicus.eu/dhus/search?start=0&rows=100&q="
