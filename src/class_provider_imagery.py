@@ -15,6 +15,7 @@ class ProviderImagery:
 
     def __init__(self, source, uuid, name=None, acquisition_time=None, gml_coordinates=None, tiff_files=None):
         # source is either "C" or "L" for respectively Copernicus/Landsat
+        self.downloaded_files = []
         self.source = source
         # unique identifier from the imagery provider.
         self.uuid = uuid
@@ -89,6 +90,7 @@ class ProviderImagery:
                         if chunk:  # filter out keep-alive new chunks
                             f.write(chunk)
                             self.print_progress(i, int(size / 1048576), "progress", str(int(size / 1048576)) + "mb")
+                self.downloaded_files.append(file)
                 return
 
     def delete_raw_data(self):

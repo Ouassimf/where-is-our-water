@@ -4,4 +4,4 @@ COP_PASSWORD = '747400Co'
 
 # DIRECTORIES
 WORKING_DIRECTORY = '../working_directory/'
-RAW_DATA = '../raw_data/'
+RAW_DATA_DIRECTORY = '../raw_data/'
