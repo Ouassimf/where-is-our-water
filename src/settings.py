@@ -4,4 +4,10 @@ COP_PASSWORD = '747400Co'
 
 # DIRECTORIES
 WORKING_DIRECTORY = '../working_directory/'
-RAW_DATA = '../raw_data/'
+RAW_DATA_DIRECTORY = '../raw_data/'
+
+# PROCESSING
+WALKER_STEP_SIZE = 1  # Walker's step in degrees
+TILE_SIZE = 300  # Tile side size.
+
+DELTA_DAY = 15

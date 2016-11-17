@@ -1,36 +1,55 @@
-import requests
-from requests.auth import HTTPBasicAuth
-import xml.etree.ElementTree as ETree
-from matplotlib.path import Path
-from matplotlib import path
-import matplotlib.patches as patches
-from class_provider_imagery import ProviderImagery
-import matplotlib.pyplot as plt
-import settings
-from osgeo import gdal, gdalnumeric, ogr
-from PIL import Image, ImageDraw
 import os
+import xml.etree.ElementTree as ETree
+
+import datetime
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 import numpy as np
+import requests
+from PIL import Image, ImageDraw
+from matplotlib import path
+from osgeo import gdalnumeric, ogr, gdal
+from requests.auth import HTTPBasicAuth
+
+import settings
+from class_provider_imagery import ProviderImagery
 
 
 class WowImagery:
     def __init__(self, coordinates, file=None):
 
+        self.tiles_file_list = []
         self.coordinates = coordinates
         self.file = file
 
+    def process_area(self, date):
+        # 1. Get imagery that covers the requested area (either locally, online, or merged)
+        self.generate_from_coordinates(date)
+        # 2. Split newly created image in tiles for easier processing
+        self.split_in_tiles()
+        # 3. Runs classifier on each tiles
+        self.classify()
+
     def generate_from_coordinates(self, date):
         product_list = self.get_product_list_by_time_location(date)
+        available_offline = self.available_offline(product_list)
         contained_list = self.fully_contained_in_product(product_list)
-        if contained_list:
+        if available_offline:
+            print("Fitting file found offline")
+            # TODO : Local file scanner
+
+        elif contained_list:
+            print("No local file \n Downloading from online provider")
             image = ProviderImagery('C', contained_list[0])
             image.download_quicklook()
             image.download_tiff('vv')
-            self.file = image.tiff_files[0]
-            self.crop()
+            self.file = image.uuid + '/' + image.downloaded_files[0]
+            self.crop(date)
+            image.delete_raw_data()
 
         else:
             # TODO : Merger
+            print("No local nor direct online file \n Downloading multiple files from online provider and merging")
             covers = []
             leftovers = 0
             while leftovers:
@@ -39,19 +58,45 @@ class WowImagery:
             print("I will merge")
 
     def split_in_tiles(self):
+        filepath = settings.WORKING_DIRECTORY + self.file
+        dset = gdal.Open(filepath)
+        width = dset.RasterXSize
+        height = dset.RasterYSize
+
+        print(width, 'x', height)
+
+        tilesize = settings.TILE_SIZE
+        self.tiles_file_list = []
+        for i in range(0, width, tilesize):
+            for j in range(0, height, tilesize):
+                w = min(i + tilesize, width) - i
+                h = min(j + tilesize, height) - j
+                tile_filename = 'tile' + "_" + str(i) + "_" + str(j) + ".tif"
+                gdaltran_string = "gdal_translate -of GTIFF -srcwin " + str(i) + ", " + str(j) + ", " + str(w) + ", " \
+                                  + str(h) + " " + filepath + " " + settings.WORKING_DIRECTORY + tile_filename
+                os.system(gdaltran_string)
+                self.tiles_file_list.append(tile_filename)
+        print(str(len(self.tiles_file_list)) + ' tiles created')
+        print(self.tiles_file_list)
         pass
 
     def classify(self):
-        pass
+        for tile in self.tiles_file_list:
+            print(tile)
 
     def get_product_list_by_time_location(self, date):
+        # date in format '31_12_2015'
         url = "https://scihub.copernicus.eu/dhus/search?start=0&rows=100&q="
         coordinates = ",".join(" ".join(map(str, l)) for l in self.coordinates)
         coordinates = 'POLYGON((' + coordinates + '))'
         location_filter = 'footprint:"Intersects(%s)"' % coordinates
         type_filter = "producttype:GRD"
-        # TODO : Implement date in filter
-        date_filter = "beginposition:[NOW-1MONTHS TO NOW] AND endposition:[NOW-1MONTHS TO NOW]"
+        date_object = datetime.datetime.strptime(date, '%d_%m_%Y')
+        delta = datetime.timedelta(days=settings.DELTA_DAY)
+        date_min = (date_object - delta).isoformat()
+        date_max = (date_object + delta).isoformat()
+        print(date_min + '\n' + date_max)
+        date_filter = "beginposition:[" + date_min + "Z TO " + date_max + "Z] AND endposition:[" + date_min + "Z TO " + date_max + "Z]"
         filter_tag = location_filter + " AND " + type_filter + " AND " + date_filter
         url += filter_tag
         print(url)
@@ -93,22 +138,18 @@ class WowImagery:
         ax.autoscale(True)
         plt.show()
 
-    def crop(self):
-        gdal.AllRegister()
-        # file = self.file[0]
-        file = '../raw_data/2a97b055-3dc7-4a94-864e-0979ddee9412/s1b-iw-grd-vv-20161114t050057-20161114t050122-002950-00501f-001.tiff'
-        ds = gdal.Open(file)
-        band = ds.GetRasterBand(1)
-        data = band.ReadAsArray()
-        clipper = settings.WORKING_DIRECTORY + self.generate_shapefile_from_extent()
-        clipped = self.clip_raster(data, clipper)
-        return 1
+    def crop(self, date):
+        # 1. Generate cuting line
+        clipper = self.generate_shapefile_from_extent()
+        # 2. Cut file
+        self.cli_clip_raster(clipper, date)
+        return
 
     def generate_shapefile_from_extent(self):
         from osgeo import ogr
         import os
-
         # Create a Polygon from the coordinates
+        print('\n Generating cut polygon')
         ring = ogr.Geometry(ogr.wkbLinearRing)
         filename = 'clipper'
         for point in self.coordinates:
@@ -217,6 +258,7 @@ class WowImagery:
 
         # Can accept either a gdal.Dataset or numpy.array instance
         if not isinstance(rast, np.ndarray):
+            print("is not an array")
             gt = rast.GetGeoTransform()
             rast = rast.ReadAsArray()
 
@@ -310,3 +352,22 @@ class WowImagery:
             clip = gdalnumeric.choose(mask, (clip, nodata))
 
         return (clip, ulX, ulY, gt2)
+
+    def cli_clip_raster(self, clipper, date):
+        input_file = self.file
+        output_file = 'clipped_' + date
+        for point in self.coordinates:
+            print(point)
+            output_file += '_' + str(point[0]) + '_' + str(point[1])
+        output_file += '.tiff'
+        cmd = "gdalwarp -q -cutline " + settings.WORKING_DIRECTORY + clipper + " -crop_to_cutline -of GTiff " \
+              + settings.RAW_DATA_DIRECTORY + input_file + ' ' + settings.WORKING_DIRECTORY + output_file
+        print(cmd)
+        os.system(cmd)
+        self.file = output_file
+        while not os.path.isfile(settings.WORKING_DIRECTORY + output_file):
+            print('Waiting for command completion')
+        return output_file
+
+    def available_offline(self, product_list):
+        pass
