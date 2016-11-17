@@ -2,7 +2,7 @@ import glob
 
 import time
 
-import wow_functions as wf
+</entry>
 import sys
 
 
