@@ -9,3 +9,5 @@ RAW_DATA_DIRECTORY = '../raw_data/'
 # PROCESSING
 WALKER_STEP_SIZE = 1  # Walker's step in degrees
 TILE_SIZE = 300  # Tile side size.
+
+DELTA_DAY = 15

@@ -95,9 +95,6 @@ class ProviderImagery:
 
     def delete_raw_data(self):
         """Delete all data of a product"""
-        self.delete_quicklook()
-        self.delete_tiff_files()
-        self.delete_manifest()
         shutil.rmtree('../raw_data/' + self.uuid)
 
     def delete_quicklook(self):

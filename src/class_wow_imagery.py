@@ -1,5 +1,7 @@
 import os
 import xml.etree.ElementTree as ETree
+
+import datetime
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
@@ -42,7 +44,8 @@ class WowImagery:
             image.download_quicklook()
             image.download_tiff('vv')
             self.file = image.uuid + '/' + image.downloaded_files[0]
-            self.crop()
+            self.crop(date)
+            image.delete_raw_data()
 
         else:
             # TODO : Merger
@@ -82,13 +85,18 @@ class WowImagery:
             print(tile)
 
     def get_product_list_by_time_location(self, date):
+        # date in format '31_12_2015'
         url = "https://scihub.copernicus.eu/dhus/search?start=0&rows=100&q="
         coordinates = ",".join(" ".join(map(str, l)) for l in self.coordinates)
         coordinates = 'POLYGON((' + coordinates + '))'
         location_filter = 'footprint:"Intersects(%s)"' % coordinates
         type_filter = "producttype:GRD"
-        # TODO : Implement date in filter
-        date_filter = "beginposition:[NOW-1MONTHS TO NOW] AND endposition:[NOW-1MONTHS TO NOW]"
+        date_object = datetime.datetime.strptime(date, '%d_%m_%Y')
+        delta = datetime.timedelta(days=settings.DELTA_DAY)
+        date_min = (date_object - delta).isoformat()
+        date_max = (date_object + delta).isoformat()
+        print(date_min + '\n' + date_max)
+        date_filter = "beginposition:[" + date_min + "Z TO " + date_max + "Z] AND endposition:[" + date_min + "Z TO " + date_max + "Z]"
         filter_tag = location_filter + " AND " + type_filter + " AND " + date_filter
         url += filter_tag
         print(url)
@@ -130,11 +138,11 @@ class WowImagery:
         ax.autoscale(True)
         plt.show()
 
-    def crop(self):
+    def crop(self, date):
         # 1. Generate cuting line
         clipper = self.generate_shapefile_from_extent()
         # 2. Cut file
-        self.cli_clip_raster(clipper)
+        self.cli_clip_raster(clipper, date)
         return
 
     def generate_shapefile_from_extent(self):
@@ -345,9 +353,9 @@ class WowImagery:
 
         return (clip, ulX, ulY, gt2)
 
-    def cli_clip_raster(self, clipper):
+    def cli_clip_raster(self, clipper, date):
         input_file = self.file
-        output_file = 'clipped'
+        output_file = 'clipped_' + date
         for point in self.coordinates:
             print(point)
             output_file += '_' + str(point[0]) + '_' + str(point[1])
@@ -357,6 +365,8 @@ class WowImagery:
         print(cmd)
         os.system(cmd)
         self.file = output_file
+        while not os.path.isfile(settings.WORKING_DIRECTORY + output_file):
+            print('Waiting for command completion')
         return output_file
 
     def available_offline(self, product_list):
