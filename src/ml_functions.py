@@ -6,6 +6,21 @@ from osgeo import gdal
 from sklearn import metrics
 import _compat_pickle
 from scipy import misc
+from skimage import exposure
+
+def image_posp_proc(array):
+
+    #Tweaking possibility
+    th=0.98  # value between 0 and 1. How close has the average to be to a initial water guess (1) to be still considered as water?
+
+    proc1=feature_gen(array)  #averaging to reduce the noise
+    #now the file is not binary anymore
+
+    bool2 = (proc1>th)
+    output = bool2.astype(int)
+
+    return output
+
 
 
 def feature_gen(img_as_array):
@@ -17,7 +32,7 @@ def feature_gen(img_as_array):
     new_file=np.zeros((xsize, ysize))
 
     #kernel size (1=3x3, 2=5x5, 3=7x7
-    sz=2
+    sz=3
 
     for x in range (sz,xsize-sz):
         for y in range (sz,ysize-sz):
@@ -35,24 +50,51 @@ def show_on_same_image(first, second, third, fourth):
     #function that shows multiple images at once for simle debugging.
     #NOT USED
 
+
     fig = plt.figure()
     a=fig.add_subplot(221)
-    a.set_title("original")
-    plt.hist(first)
+    a.set_title("training file")
+    #plt.imshow(first, cmap="Greys", vmin=0, vmax=255)
+    plt.imshow(first, cmap="Greys")
 
 
     a=fig.add_subplot(222)
-    a.set_title("averaged")
-    plt.imshow(second)
+    a.set_title("test file")
+    plt.imshow(second, cmap="Greys")
 
     a=fig.add_subplot(223)
-    a.set_title("first threshold")
-    plt.imshow(third)
+    a.set_title("prediction NN")
+    plt.imshow(third, cmap="Greys")
 
     a=fig.add_subplot(224)
-    a.set_title("second threshold")
-    plt.imshow(fourth)
+    a.set_title("prediction NN")
+    plt.imshow(fourth, cmap="Greys")
+    plt.show()
 
+def show_on_same_image2(first, second, third, fourth, l1, l2, l3, l4):
+
+    #function that shows multiple images at once for simle debugging.
+    #NOT USED
+
+
+    fig = plt.figure()
+    a=fig.add_subplot(221)
+    a.set_title(l1)
+    #plt.imshow(first, cmap="Greys", vmin=0, vmax=255)
+    plt.imshow(first, cmap="Greys")
+
+
+    a=fig.add_subplot(222)
+    a.set_title(l2)
+    plt.imshow(second, cmap="Greys")
+
+    a=fig.add_subplot(223)
+    a.set_title(l3)
+    plt.imshow(third, cmap="Greys")
+
+    a=fig.add_subplot(224)
+    a.set_title(l4)
+    plt.imshow(fourth, cmap="Greys")
     plt.show()
 
 def split_histogram(input, thresholdlower, thresholdupper):
@@ -134,69 +176,101 @@ def show_feature(X,y):
     plt.legend(handles=[blue_patch, red_patch])
     plt.show()
     percentage=100-((sep/till)*100)
-    print (str(percentage) + "% of all pixels in the image are water. starting from" + str(sep))
+    print (str(percentage) + "% of all pixels in the image are water. From " + str(sep) + " till " + str(till) + ". So " + str(till-sep) + " in total!")
+
+def sobel(file):
+    sx = ndimage.sobel(file, axis=0, mode='constant')
+    sy = ndimage.sobel(file, axis=1, mode='constant')
+    sob = np.hypot(sx, sy)
 
 
-#hardcoded file locations
-raster_data_path = "../raw_data/data.tiff"
-output_fname = "classification.tiff"
-vector_data_path="../raw_data/label.tiff"
+    #es warn 235 und 250
+    sob = split_histogram(sob, 50000, 80000)
 
 
-data=open_file(raster_data_path)
-vector=open_file(vector_data_path)
-new_file=feature_gen(data)
 
-plt.hist(new_file)
-plt.show()
-
-#bei 3er Kernel is 75 der splitwert
-feature2 = split_histogram(new_file, 0, 130)
-
-plt.imshow(feature2)
-plt.show()
-
-#bringing the data in shape for its big moment with the classifier
-data=data.flatten()
-feature2=feature2.flatten()
-vector=vector.flatten()
-X= merge_layers(data, feature2)
-vector[vector <= 200] = 0
-vector[vector > 200] = 1
-#X=X.T
-y=vector
-
-sx = ndimage.sobel(new_file, axis=0, mode='constant')
-sy = ndimage.sobel(new_file, axis=1, mode='constant')
-sob = np.hypot(sx, sy)
+    sx2 = ndimage.sobel(sob, axis=0, mode='constant')
+    sy2 = ndimage.sobel(sob, axis=1, mode='constant')
+    sob2 = np.hypot(sx2, sy2)
 
 
-sob2=split_histogram(sob, 0, 235)
-
-sx = ndimage.sobel(sob2, axis=0, mode='constant')
-sy = ndimage.sobel(sob2, axis=1, mode='constant')
-sob3 = np.hypot(sx, sy)
-
-sob3=split_histogram(sob3, 0, 250)
+    #sob2 = split_histogram(sob2, 0, 200)
 
 
-sob3=sob3.flatten()
-Z=merge_layers(feature2, sob3)
-show_feature(Z,y)
 
+    return sob2
 
-#show_feature(X,y)
+def visualize3D(f1,f2,f3, y):
 
-#pick classifier of choice (SVW is too comp expensivefor my pc)
-#classifier=classify_knn(X,y)
-#classifier=classify_NN(X,y)
-#classifier=classify_SVM(X,y)
-#save_classifier(classifier)
-#classifier=load_classifier()
-# y_pred=evaluate(classifier, X,y)
-#
-#
-# predicted = y_pred.reshape(data.shape)
-#
-# plt.imshow(predicted)
-# plt.show()
+    from mpl_toolkits.mplot3d import Axes3D, axes3d
+    figure = plt.figure()
+    ax=Axes3D(figure, azim=-26)
+    ax.scatter(f3, f2, f1, c=y)
+    ax.set_zlabel("raw pixel brightness")
+    ax.set_ylabel("[5x5] kernel")
+    ax.set_xlabel("double sobel")
+    plt.show()
+
+def dasrenntimmer():
+    # hardcoded file locations
+    raster_data_path = "../raw_data/data.tiff"
+    output_fname = "classification.tiff"
+    vector_data_path = "../raw_data/label.tiff"
+    testfile = "../raw_data/seengruppe.tiff"
+
+    data = open_file(raster_data_path)
+    vector = open_file(vector_data_path)
+    testdata = open_file(testfile)
+    new_file = feature_gen(data)
+
+    # bei 3er Kernel is 75 der splitwert
+    feature2 = split_histogram(new_file, 0, 130)
+
+    feauture_sobel = sobel(data)
+    feauture_sobel = feauture_sobel.flatten()
+    testdata = testdata.flatten()
+
+    # bringing the data in shape for its big moment with the classifier
+    data = data.flatten()
+    feature2 = feature2.flatten()
+    vector = vector.flatten()
+    X = merge_layers(feauture_sobel, feature2)
+    vector[vector <= 200] = 0
+    vector[vector > 200] = 1
+
+    y = vector
+
+    show_feature(X, y)
+
+    # visualize3D(split_histogram(data, 0, 400), feature2, feauture_sobel, y)
+
+    # show_feature(X,y)
+    X = X.T
+    # pick classifier of choice (SVW is too comp expensivefor my pc)
+    classifier = classify_knn(X, y)
+    # classifier=classify_NN(A.T,y)
+    # classifier=classify_SVM(X,y)
+    # there are still isues to save and load it
+    # save_classifier(classifier)
+    # classifier=load_classifier()
+    print("hier bin ich")
+    oo = open_file(testfile)
+    f2 = feature_gen(oo)
+    f2 = split_histogram(f2, 0, 130)
+    f2 = f2.flatten()
+    f3 = sobel(oo)
+    f3 = f3.flatten()
+    F = merge_layers(f3, f2)
+    m = open_file(testfile)
+
+    # y_pred=evaluate(classifier, XX,y)
+    #
+    #
+    y_pred = classifier.predict(F)
+
+    predicted = y_pred.reshape(m.shape)
+    #
+    plt.imshow(predicted)
+    plt.title("KNN classifier, trained on Neusiedlersee, n=5")
+    plt.show()
+
