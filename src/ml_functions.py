@@ -10,10 +10,13 @@ from skimage import exposure
 
 def image_posp_proc(array):
 
+    #cleaning the file
+
+
     #Tweaking possibility
     th=0.98  # value between 0 and 1. How close has the average to be to a initial water guess (1) to be still considered as water?
 
-    proc1=feature_gen(array)  #averaging to reduce the noise
+    proc1=feature_gen(array, 2)  #averaging to reduce the noise
     #now the file is not binary anymore
 
     bool2 = (proc1>th)
@@ -23,16 +26,16 @@ def image_posp_proc(array):
 
 
 
-def feature_gen(img_as_array):
+def feature_gen(img_as_array, size):
 
-    #creature the second feature for the classifier. The average of the surrounding pixels
+    #create the second feature for the classifier. The average of the surrounding pixels
 
     xsize=img_as_array.shape[0]
     ysize=img_as_array.shape[1]
     new_file=np.zeros((xsize, ysize))
 
-    #kernel size (1=3x3, 2=5x5, 3=7x7
-    sz=3
+    #kernel size (1=3x3, 2=5x5, 3=7x7)
+    sz=size
 
     for x in range (sz,xsize-sz):
         for y in range (sz,ysize-sz):
@@ -47,8 +50,7 @@ def feature_gen(img_as_array):
 
 def show_on_same_image(first, second, third, fourth):
 
-    #function that shows multiple images at once for simle debugging.
-    #NOT USED
+    #function that shows multiple images at once for simple debugging.
 
 
     fig = plt.figure()
@@ -73,8 +75,7 @@ def show_on_same_image(first, second, third, fourth):
 
 def show_on_same_image2(first, second, third, fourth, l1, l2, l3, l4):
 
-    #function that shows multiple images at once for simle debugging.
-    #NOT USED
+    #function that shows multiple images at once for simle debugging. l1-4 are custom labels
 
 
     fig = plt.figure()
