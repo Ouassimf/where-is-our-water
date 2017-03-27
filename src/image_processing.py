@@ -17,10 +17,16 @@ from scipy import ndimage
 #
 #
 #
-# only value to modify is the minimum lake saze (how many pixels a lake has to have at least to be classified as one). This allows to remove the dust and all small water bodies
+# one value to modify is the minimum lake saze (how many pixels a lake has to have at least to be classified as one). This allows to remove the dust and all small water bodies
 # For the Ballaton picture a value of 1500 results in a classification close to the one I would take naturally. Everything above 10 000 leaves only the biggest lakes
-minlakepixel=1500
+# another parameter is the threshold for water in pixel brightness. At the moment this is added manually and has to be very different for each scenery. Maybe we can implement this form
+# the ML algorithm?
+#issues: if there it too much dust it detects random things, and often it detects a super tiny lake together with the right ones (<10 pixel) this can be cought by a post-post-processing algorithm
 
+
+
+minlakepixel=1500
+waterthreshold=0.15
 
 
 def cleanup(boolimage, minsize): #cleans the image from noise and too small water areas
@@ -43,10 +49,10 @@ dataeq=exposure.equalize_hist(data)
 
 
 #turnes it into a boolean file
-dataeq[dataeq <= 0.15] = 0
-dataeq[dataeq > 0.15] = 1
+dataeq[dataeq <= waterthreshold] = 0
+dataeq[dataeq > waterthreshold] = 1
 
-bool = (dataeq<0.15)
+bool = (dataeq<waterthreshold)
 file = bool.astype(int)
 
 plt.figure(1)
