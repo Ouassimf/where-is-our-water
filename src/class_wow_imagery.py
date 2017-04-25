@@ -10,12 +10,15 @@ from PIL import Image, ImageDraw
 from matplotlib import path
 from osgeo import gdalnumeric, ogr, gdal
 from requests.auth import HTTPBasicAuth
+from shapely import geos
+from shapely import wkt
 
 import settings
 from class_provider_imagery import ProviderImagery
 
 
 class WowImagery:
+    # This Class defines the WOW Internal imagery functions.
     def __init__(self, coordinates, file=None):
 
         self.tiles_file_list = []
@@ -50,7 +53,7 @@ class WowImagery:
         else:
             # TODO : Merger
             print("No local nor direct online file \n Downloading multiple files from online provider and merging")
-            covers = []
+            self.get_product_list_for_merging()
             leftovers = 0
             while leftovers:
                 covers = self.find_maximum_container(product_list)
@@ -187,12 +190,6 @@ class WowImagery:
         # Close DataSource
         out_data_source.Destroy()
         return filename
-
-    def find_maximum_container(self, product_list):
-        return
-
-    def compute_leftovers(self, covers):
-        return
 
     @staticmethod
     def process_footprint_string(footprint):
@@ -370,4 +367,87 @@ class WowImagery:
         return output_file
 
     def available_offline(self, product_list):
+        pass
+
+    def get_product_list_for_merging(self, date):
+        from random import random
+        import time
+        from shapely.geometry import Polygon
+        from shapely.ops import cascaded_union
+        from matplotlib import pyplot as plt
+        from descartes import PolygonPatch
+
+        target_poly = Polygon(self.coordinates)
+        leftover_poly = Polygon(self.coordinates)
+
+        product_list = self.get_product_list_by_time_location(date)
+        tree = ETree.ElementTree(ETree.fromstring(product_list))
+        root = tree.getroot()
+        poly_list_id = []
+        poly_list = []
+        for child in root.findall('{http://www.w3.org/2005/Atom}entry'):
+            product_id = child.find('{http://www.w3.org/2005/Atom}id').text
+            for sub in child.findall('{http://www.w3.org/2005/Atom}str'):
+                if sub.attrib['name'] == "footprint":
+                    print(sub.text)
+                    product_polygon = wkt.loads(sub.text)
+                    poly_list_id.append(product_id)
+                    poly_list.append(product_polygon)
+
+        print(poly_list_id)
+
+        fig = plt.figure(1, figsize=(5, 5), dpi=90)
+
+        def plot_basics():
+
+            axes = plt.gca()
+            ring_patch = PolygonPatch(target_poly, fc='blue', ec='black', alpha=0.5, hatch='*')
+            ax.add_patch(ring_patch)
+            ring_patch = PolygonPatch(leftover_poly, fc='yellow', ec='black', alpha=0.7, hatch='/')
+            ax.add_patch(ring_patch)
+            axes.autoscale(enable=True, axis='both', tight=None)
+
+        plt.ion()
+
+        union_polygon_list = []
+        cnt = 0
+        while leftover_poly.area > 0:
+            cnt += 1
+            ax = fig.add_subplot(111)
+            plot_basics()
+
+            print("ITERATION : " + str(cnt))
+            print("Candidates Polygons  : " + str(len(poly_list)))
+            maximum_container = 0
+            for idx, item in enumerate(poly_list):
+                poly = item
+                x, y = poly.exterior.xy
+                tmp = ax.plot(x, y, color='#6699cc', alpha=0.7,
+                              linewidth=3, solid_capstyle='round', zorder=2)
+                if poly.intersection(leftover_poly).area > maximum_container:
+                    maximum_container = poly.intersection(leftover_poly).area
+                    maximum_container_id = idx
+
+                plt.show()
+                fig.canvas.draw()
+                time.sleep(.0200)
+            if maximum_container != 0:
+                poly = Polygon(poly_list[maximum_container_id])
+                x, y = poly.exterior.xy
+                ax.plot(x, y, color='gold', alpha=0.7,
+                        linewidth=3, solid_capstyle='round', zorder=2)
+                plt.show()
+                fig.canvas.draw()
+                time.sleep(.5)
+                print(maximum_container)
+                union_polygon_list.append(Polygon(poly_list[maximum_container_id]))
+                union_polygon = cascaded_union(union_polygon_list)
+                poly_list.pop(maximum_container_id)
+                leftover_poly = target_poly.difference(union_polygon)
+
+            fig.clear()
+            plt.show()
+            fig.canvas.draw()
+
+        print(len(union_polygon_list))
         pass

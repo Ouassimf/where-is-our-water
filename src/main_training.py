@@ -2,7 +2,6 @@ import glob
 
 import time
 
-</entry>
 import sys
 
 
