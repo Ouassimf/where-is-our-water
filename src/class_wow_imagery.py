@@ -10,55 +10,53 @@ from PIL import Image, ImageDraw
 from matplotlib import path
 from osgeo import gdalnumeric, ogr, gdal
 from requests.auth import HTTPBasicAuth
-from shapely import geos
 from shapely import wkt
-
 import settings
 from class_provider_imagery import ProviderImagery
 
 
 class WowImagery:
     # This Class defines the WOW Internal imagery functions.
-    def __init__(self, coordinates, file=None):
-
+    def __init__(self, coordinates, date, file=None):
         self.tiles_file_list = []
         self.coordinates = coordinates
+        self.date = date
         self.file = file
 
-    def process_area(self, date):
+    def process_area(self):
         # 1. Get imagery that covers the requested area (either locally, online, or merged)
-        self.generate_from_coordinates(date)
+        self.generate_from_coordinates()
         # 2. Split newly created image in tiles for easier processing
         self.split_in_tiles()
         # 3. Runs classifier on each tiles
         self.classify()
 
-    def generate_from_coordinates(self, date):
-        product_list = self.get_product_list_by_time_location(date)
-        available_offline = self.available_offline(product_list)
+    def generate_from_coordinates(self):
+        # From given coordinates, will generate/download the imagery
+        product_list = self.get_product_list_by_time_location()
+        # Test if some of the required products are already in local storage
         contained_list = self.fully_contained_in_product(product_list)
+        available_offline = self.available_offline(contained_list)
+
         if available_offline:
             print("Fitting file found offline")
             # TODO : Local file scanner
 
+        # If no local file is present, look for the file online and download it.
         elif contained_list:
             print("No local file \n Downloading from online provider")
             image = ProviderImagery('C', contained_list[0])
             image.download_quicklook()
             image.download_tiff('vv')
             self.file = image.uuid + '/' + image.downloaded_files[0]
-            self.crop(date)
+            self.crop()
             image.delete_raw_data()
-
+        # if no proper online imagery is available, will download and merge multiple products.
         else:
             # TODO : Merger
             print("No local nor direct online file \n Downloading multiple files from online provider and merging")
-            self.get_product_list_for_merging()
-            leftovers = 0
-            while leftovers:
-                covers = self.find_maximum_container(product_list)
-                leftovers = self.compute_leftovers(covers)
-            print("I will merge")
+            merging_list = self.get_product_list_for_merging()
+            self.file = self.merge_products_into_one(merging_list)
 
     def split_in_tiles(self):
         filepath = settings.WORKING_DIRECTORY + self.file
@@ -86,15 +84,20 @@ class WowImagery:
     def classify(self):
         for tile in self.tiles_file_list:
             print(tile)
+            # TODO : Classify and output raster tiles
 
-    def get_product_list_by_time_location(self, date):
+            # TODO : Merge Classified rasters
+            # TODO : Run Contour Detection on Merged Classified raster
+            # TODO : Save Contour to DB and return status code
+
+    def get_product_list_by_time_location(self):
         # date in format '31_12_2015'
         url = "https://scihub.copernicus.eu/dhus/search?start=0&rows=100&q="
         coordinates = ",".join(" ".join(map(str, l)) for l in self.coordinates)
         coordinates = 'POLYGON((' + coordinates + '))'
         location_filter = 'footprint:"Intersects(%s)"' % coordinates
         type_filter = "producttype:GRD"
-        date_object = datetime.datetime.strptime(date, '%d_%m_%Y')
+        date_object = datetime.datetime.strptime(self.date, '%d_%m_%Y')
         delta = datetime.timedelta(days=settings.DELTA_DAY)
         date_min = (date_object - delta).isoformat()
         date_max = (date_object + delta).isoformat()
@@ -141,11 +144,11 @@ class WowImagery:
         ax.autoscale(True)
         plt.show()
 
-    def crop(self, date):
+    def crop(self):
         # 1. Generate cuting line
         clipper = self.generate_shapefile_from_extent()
         # 2. Cut file
-        self.cli_clip_raster(clipper, date)
+        self.cli_clip_raster(clipper)
         return
 
     def generate_shapefile_from_extent(self):
@@ -350,9 +353,9 @@ class WowImagery:
 
         return (clip, ulX, ulY, gt2)
 
-    def cli_clip_raster(self, clipper, date):
+    def cli_clip_raster(self, clipper):
         input_file = self.file
-        output_file = 'clipped_' + date
+        output_file = 'clipped_' + self.date
         for point in self.coordinates:
             print(point)
             output_file += '_' + str(point[0]) + '_' + str(point[1])
@@ -367,34 +370,26 @@ class WowImagery:
         return output_file
 
     def available_offline(self, product_list):
-        pass
+        # TODO: Finish the local scaning method
+        # Scan the local raw_data directory a specific uuid
+        for product in product_list:
+            os.path.isdir(settings.RAW_DATA_DIRECTORY + product)
+        return False
 
-    def get_product_list_for_merging(self, date):
-        from random import random
-        import time
+    def get_product_list_for_merging(self):
         from shapely.geometry import Polygon
         from shapely.ops import cascaded_union
         from matplotlib import pyplot as plt
         from descartes import PolygonPatch
 
+        # Initialize the target polygon (our area of interest)
         target_poly = Polygon(self.coordinates)
+        # Initialize the leftover polygon which is equal to area of interest at t=0
         leftover_poly = Polygon(self.coordinates)
 
-        product_list = self.get_product_list_by_time_location(date)
-        tree = ETree.ElementTree(ETree.fromstring(product_list))
-        root = tree.getroot()
-        poly_list_id = []
-        poly_list = []
-        for child in root.findall('{http://www.w3.org/2005/Atom}entry'):
-            product_id = child.find('{http://www.w3.org/2005/Atom}id').text
-            for sub in child.findall('{http://www.w3.org/2005/Atom}str'):
-                if sub.attrib['name'] == "footprint":
-                    print(sub.text)
-                    product_polygon = wkt.loads(sub.text)
-                    poly_list_id.append(product_id)
-                    poly_list.append(product_polygon)
-
-        print(poly_list_id)
+        # Get a product list that intersects the AOI (Area of Interest)
+        product_list = self.get_product_list_by_time_location()
+        poly_list_id, poly_list = self.parse_product_list_for_id_and_coordinates(product_list)
 
         fig = plt.figure(1, figsize=(5, 5), dpi=90)
 
@@ -410,6 +405,7 @@ class WowImagery:
         plt.ion()
 
         union_polygon_list = []
+        result_poly_id = []
         cnt = 0
         while leftover_poly.area > 0:
             cnt += 1
@@ -430,7 +426,7 @@ class WowImagery:
 
                 plt.show()
                 fig.canvas.draw()
-                time.sleep(.0200)
+
             if maximum_container != 0:
                 poly = Polygon(poly_list[maximum_container_id])
                 x, y = poly.exterior.xy
@@ -438,16 +434,51 @@ class WowImagery:
                         linewidth=3, solid_capstyle='round', zorder=2)
                 plt.show()
                 fig.canvas.draw()
-                time.sleep(.5)
+
                 print(maximum_container)
                 union_polygon_list.append(Polygon(poly_list[maximum_container_id]))
                 union_polygon = cascaded_union(union_polygon_list)
+                result_poly_id.append(poly_list_id[maximum_container_id])
                 poly_list.pop(maximum_container_id)
+                poly_list_id.pop(maximum_container_id)
                 leftover_poly = target_poly.difference(union_polygon)
 
             fig.clear()
             plt.show()
             fig.canvas.draw()
+        print(len(result_poly_id))
+        print(result_poly_id)
+        return result_poly_id
 
-        print(len(union_polygon_list))
-        pass
+    def parse_product_list_for_id_and_coordinates(self, product_list):
+        tree = ETree.ElementTree(ETree.fromstring(product_list))
+        root = tree.getroot()
+        poly_list_id = []
+        poly_list = []
+        for child in root.findall('{http://www.w3.org/2005/Atom}entry'):
+            product_id = child.find('{http://www.w3.org/2005/Atom}id').text
+            for sub in child.findall('{http://www.w3.org/2005/Atom}str'):
+                if sub.attrib['name'] == "footprint":
+                    print(sub.text)
+                    product_polygon = wkt.loads(sub.text)
+                    poly_list_id.append(product_id)
+                    poly_list.append(product_polygon)
+        print(poly_list_id)
+        return poly_list_id, poly_list
+
+    def merge_products_into_one(self, merging_list):
+        file_list = []
+        for product in merging_list:
+            image = ProviderImagery('C', product)
+            image.download_quicklook()
+            image.download_manifest()
+            # image.download_tiff('vv')
+            # clipper = image.generate_shapefile_from_extent(self.coordinates)
+            # file_path = image.cli_clip_raster(clipper, self.coordinates)
+            # file_list.append(file_path)
+
+        print(file_list)
+        self.file = ''
+        # self.crop()
+
+        return 'x'

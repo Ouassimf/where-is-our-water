@@ -2,16 +2,16 @@ import logging
 import os
 import requests
 import shutil
-
 import sys
 
+import settings
 import settings as stgs
 from requests.auth import HTTPBasicAuth
 import xml.etree.ElementTree as ETree
 
 
 class ProviderImagery:
-    """Class for manipulating imagery from Sentinel Sat"""
+    """Class for manipulating imagery from Sentinel Sat / Copernicus """
 
     def __init__(self, source, uuid, name=None, acquisition_time=None, gml_coordinates=None, tiff_files=None):
         # source is either "C" or "L" for respectively Copernicus/Landsat
@@ -26,6 +26,7 @@ class ProviderImagery:
         self.tiff_files = tiff_files
 
     def download_quicklook(self):
+        # Downloads the quicklook (a png file) of the selected product
         self.set_name()
         product_name = self.name + '.SAFE'
         url = stgs.COP_BASE_URL + "/Products('%s')/Nodes('%s')/Nodes('preview')/Nodes('quick-look.png')/$value" % (
@@ -38,6 +39,7 @@ class ProviderImagery:
         return response
 
     def download_manifest(self):
+        # Downloads the manifest (containing geo data, date , and other info ) of the selected product
         self.set_name()
         product_name = self.name + '.SAFE'
         url = stgs.COP_BASE_URL + "/Products('%s')/Nodes('%s')/Nodes('manifest.safe')/$value" % (
@@ -53,6 +55,7 @@ class ProviderImagery:
         return response.content
 
     def populate_information(self, xml_string):
+        # Parse the manifest XML and extract data into easier to use variables.
         tree = ETree.ElementTree(ETree.fromstring(xml_string))
         root = tree.getroot()
         self.tiff_files = []
@@ -68,6 +71,7 @@ class ProviderImagery:
             self.acquisition_time.append(element.text)
         for element in tree.iter('{http://www.opengis.net/gml}coordinates'):
             self.gml_coordinates = element.text
+            print(self.gml_coordinates)
 
     def download_tiff(self, polarization=None):
         # Download tiff file, polarization is either vv or vh and optional
@@ -92,6 +96,64 @@ class ProviderImagery:
                             self.print_progress(i, int(size / 1048576), "progress", str(int(size / 1048576)) + "mb")
                 self.downloaded_files.append(file)
                 return
+
+    def generate_shapefile_from_extent(self, coordinates):
+        from osgeo import ogr
+        import os
+        # Create a Polygon from the coordinates
+        print('\n Generating cut polygon')
+        ring = ogr.Geometry(ogr.wkbLinearRing)
+        filename = 'clipper'
+        for point in coordinates:
+            print(point)
+            ring.AddPoint(point[0], point[1])
+            filename += '_' + str(point[0]) + '_' + str(point[1])
+        filename += '.shp'
+        poly = ogr.Geometry(ogr.wkbPolygon)
+        poly.AddGeometry(ring)
+
+        # Save extent to a new Shapefile
+        out_shapefile = settings.WORKING_DIRECTORY + filename
+
+        out_driver = ogr.GetDriverByName("ESRI Shapefile")
+
+        # Remove output shapefile if it already exists
+        if os.path.exists(out_shapefile):
+            out_driver.DeleteDataSource(out_shapefile)
+
+        # Create the output shapefile
+        out_data_source = out_driver.CreateDataSource(out_shapefile)
+        out_layer = out_data_source.CreateLayer("states_extent", geom_type=ogr.wkbPolygon)
+
+        # Add an ID field
+        id_field = ogr.FieldDefn("id", ogr.OFTInteger)
+        out_layer.CreateField(id_field)
+
+        # Create the feature and set values
+        feature_def = out_layer.GetLayerDefn()
+        feature = ogr.Feature(feature_def)
+        feature.SetGeometry(poly)
+        feature.SetField("id", 1)
+        out_layer.CreateFeature(feature)
+
+        # Close DataSource
+        out_data_source.Destroy()
+        return filename
+
+    def cli_clip_raster(self, clipper, coordinates):
+        input_file = self.downloaded_files[0]
+        output_file = 'clipped_'
+        for point in coordinates:
+            print(point)
+            output_file += '_' + str(point[0]) + '_' + str(point[1])
+        output_file += '.tiff'
+        cmd = "gdalwarp -q -cutline " + settings.WORKING_DIRECTORY + clipper + " -crop_to_cutline -of GTiff " \
+              + settings.RAW_DATA_DIRECTORY + input_file + ' ' + settings.WORKING_DIRECTORY + output_file
+        print(cmd)
+        os.system(cmd)
+        while not os.path.isfile(settings.WORKING_DIRECTORY + output_file):
+            print('Waiting for command completion')
+        return settings.WORKING_DIRECTORY + output_file
 
     def delete_raw_data(self):
         """Delete all data of a product"""
